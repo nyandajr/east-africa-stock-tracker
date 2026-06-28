@@ -29,8 +29,6 @@ jobs:
 
       - name: Fetch stock prices
         run: python scripts/fetch.py
-        env:
-          MANSA_API_KEY: ${{ secrets.MANSA_API_KEY }}
 
       - name: Compute technical indicators
         run: python scripts/indicators.py
