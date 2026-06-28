@@ -46,6 +46,7 @@ def fetch_nse():
     print("[fetch] NSE — afx.kwayisi.org/nse/")
     url = "https://afx.kwayisi.org/nse/"
     resp = requests.get(url, headers=BROWSER_HEADERS, timeout=30)
+    print(f"[fetch] NSE HTTP {resp.status_code}, content length {len(resp.text)}")
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -72,7 +73,8 @@ def fetch_nse():
     stocks = []
     table = soup.find("table")
     if not table:
-        print("[fetch] NSE: no table found")
+        print("[fetch] NSE: no table found — page snippet:")
+        print(resp.text[:500])
         return stocks, index_row
 
     for row in table.find_all("tr"):
@@ -115,6 +117,7 @@ def fetch_dse():
 
     try:
         resp = requests.get(url, headers=headers, timeout=30)
+        print(f"[fetch] DSE HTTP {resp.status_code}, content length {len(resp.text)}")
         resp.raise_for_status()
     except Exception as e:
         print(f"[fetch] DSE FAILED: {e}")
@@ -125,7 +128,8 @@ def fetch_dse():
 
     table = soup.find("table")
     if not table:
-        print("[fetch] DSE: no table found in response")
+        print("[fetch] DSE: no table found — page snippet:")
+        print(resp.text[:500])
         return stocks, None
 
     rows = table.find_all("tr")
