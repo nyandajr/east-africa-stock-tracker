@@ -1,6 +1,6 @@
 {
-  "status": "initializing",
-  "last_run": null,
+  "status": "running",
+  "last_run": "2026-06-28T17:17:40.148600+00:00",
   "total_stocks": 0,
   "dse_stocks": 0,
   "nse_stocks": 0
