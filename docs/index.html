@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>East Africa Stock Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #c9d1d9; }
+
+    header { background: linear-gradient(135deg, #161b22, #0d1117); border-bottom: 1px solid #21262d; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    header h1 { font-size: 1.3rem; color: #58a6ff; font-weight: 700; }
+    header p  { font-size: 0.78rem; color: #8b949e; }
+    .badge { padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; border: 1px solid; }
+    .badge-blue  { background: #1f6feb22; border-color: #1f6feb; color: #58a6ff; }
+    .badge-green { background: #23863622; border-color: #238636; color: #3fb950; }
+    .badge-red   { background: #da363322; border-color: #da3633; color: #f85149; }
+
+    main { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+    .section-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1.2px; color: #58a6ff; border-left: 3px solid #1f6feb; padding-left: 10px; margin-bottom: 14px; font-weight: 600; }
+    section { margin-bottom: 32px; }
+
+    /* Exchange cards */
+    .exchange-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .exchange-card { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 20px; }
+    .ex-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+    .ex-name  { font-size: 1rem; font-weight: 700; color: #c9d1d9; }
+    .ex-sub   { font-size: 0.75rem; color: #8b949e; margin-top: 2px; }
+    .ex-index { text-align: right; }
+    .ex-val   { font-size: 1.6rem; font-weight: 700; color: #58a6ff; }
+    .ex-chg   { font-size: 0.8rem; margin-top: 2px; }
+    .ex-meta  { display: flex; gap: 16px; font-size: 0.75rem; color: #8b949e; margin-bottom: 14px; }
+    .ex-chart { height: 120px; }
+
+    /* Movers grid */
+    .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .movers-box  { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 16px; }
+    .movers-title { font-size: 0.8rem; color: #8b949e; margin-bottom: 10px; font-weight: 600; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 0.7rem; color: #6e7681; text-transform: uppercase; padding: 6px 8px; text-align: left; border-bottom: 1px solid #21262d; }
+    td { padding: 8px 8px; font-size: 0.8rem; border-bottom: 1px solid #161b22; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #21262d44; }
+    .up   { color: #3fb950; }
+    .down { color: #f85149; }
+    .neutral { color: #8b949e; }
+
+    /* Stocks table */
+    .stocks-wrap { overflow-x: auto; background: #161b22; border: 1px solid #21262d; border-radius: 10px; }
+    .stocks-wrap table { min-width: 780px; }
+    .stocks-wrap th, .stocks-wrap td { padding: 9px 12px; }
+    .rsi-high { color: #f85149; font-weight: 600; }
+    .rsi-low  { color: #3fb950; font-weight: 600; }
+
+    /* Filter bar */
+    .filter-bar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .filter-btn { background: #161b22; border: 1px solid #21262d; color: #8b949e; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 0.78rem; transition: all .15s; }
+    .filter-btn:hover, .filter-btn.active { border-color: #58a6ff; color: #58a6ff; background: #1f6feb22; }
+    input[type=text] { background: #161b22; border: 1px solid #21262d; color: #c9d1d9; padding: 5px 12px; border-radius: 6px; font-size: 0.78rem; outline: none; width: 200px; }
+    input[type=text]:focus { border-color: #58a6ff; }
+
+    /* Alerts */
+    .alerts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+    .alert-card  { background: #161b22; border-radius: 8px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; }
+    .alert-card.overbought { border: 1px solid #da363355; }
+    .alert-card.oversold   { border: 1px solid #23863655; }
+    .alert-ticker { font-weight: 700; font-size: 0.9rem; }
+    .alert-name   { font-size: 0.72rem; color: #8b949e; }
+    .alert-rsi    { font-size: 1.1rem; font-weight: 700; }
+
+    footer { text-align: center; padding: 20px; color: #484f58; font-size: 0.72rem; border-top: 1px solid #21262d; margin-top: 20px; }
+
+    @media (max-width: 768px) {
+      main { padding: 12px 16px; }
+      .exchange-grid, .movers-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>📈 East Africa Stock Tracker</h1>
+    <p id="updated">Loading…</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <span class="badge badge-green">● Live</span>
+    <span class="badge badge-blue" id="total-badge">– stocks</span>
+  </div>
+</header>
+
+<main>
+  <!-- Exchange overview -->
+  <section>
+    <div class="section-label">Market Overview</div>
+    <div class="exchange-grid" id="exchangeGrid"></div>
+  </section>
+
+  <!-- Top movers -->
+  <section>
+    <div class="section-label">Top Movers Today</div>
+    <div class="movers-grid" id="moversGrid"></div>
+  </section>
+
+  <!-- RSI alerts -->
+  <section id="alertsSection" style="display:none">
+    <div class="section-label">RSI Signals</div>
+    <div class="alerts-grid" id="alertsGrid"></div>
+  </section>
+
+  <!-- All stocks -->
+  <section>
+    <div class="section-label">All Stocks</div>
+    <div class="filter-bar">
+      <button class="filter-btn active" onclick="filterExchange('ALL',this)">All</button>
+      <button class="filter-btn" onclick="filterExchange('DSE',this)">DSE Tanzania</button>
+      <button class="filter-btn" onclick="filterExchange('NSE',this)">NSE Kenya</button>
+      <input type="text" id="searchInput" placeholder="Search ticker or name…" oninput="renderTable()">
+    </div>
+    <div class="stocks-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Ticker</th><th>Company</th><th>Exchange</th><th>Price</th>
+            <th>Day %</th><th>MA5</th><th>MA20</th><th>RSI</th><th>5D %</th><th>Volume</th>
+          </tr>
+        </thead>
+        <tbody id="stocksBody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>East Africa Stock Tracker — DSE Tanzania &amp; NSE Kenya | Updated daily after market close via GitHub Actions</footer>
+
+<script>
+let ALL_DATA = null;
+let currentExchange = 'ALL';
+const charts = {};
+
+function fmt(v, dec=2) { return v != null ? Number(v).toFixed(dec) : '–'; }
+function fmtLarge(v) {
+  if (v == null) return '–';
+  if (v >= 1e12) return (v/1e12).toFixed(2)+'T';
+  if (v >= 1e9)  return (v/1e9).toFixed(2)+'B';
+  if (v >= 1e6)  return (v/1e6).toFixed(2)+'M';
+  return Number(v).toLocaleString();
+}
+function chgClass(v) { return v == null ? 'neutral' : v > 0 ? 'up' : v < 0 ? 'down' : 'neutral'; }
+function chgStr(v)   { return v == null ? '–' : (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%'; }
+
+function buildExchangeCard(code, ex, canvasId) {
+  const chgCls = chgClass(ex.index_change_pct);
+  return `
+    <div class="exchange-card">
+      <div class="ex-header">
+        <div>
+          <div class="ex-name">${ex.name}</div>
+          <div class="ex-sub">${ex.country} · ${ex.currency} · ${ex.stock_count} stocks listed</div>
+        </div>
+        <div class="ex-index">
+          <div class="ex-val">${ex.index_value ? Number(ex.index_value).toLocaleString(undefined,{maximumFractionDigits:2}) : '–'}</div>
+          <div class="ex-chg ${chgCls}">${chgStr(ex.index_change_pct)}</div>
+        </div>
+      </div>
+      <div class="ex-meta">
+        <span>Market cap: <strong style="color:#c9d1d9">${fmtLarge(ex.market_cap)} ${ex.currency}</strong></span>
+      </div>
+      <div class="ex-chart"><canvas id="${canvasId}"></canvas></div>
+    </div>`;
+}
+
+function buildMoverRow(s, currency) {
+  const cls = chgClass(s.change_pct);
+  return `<tr>
+    <td><strong>${s.ticker}</strong></td>
+    <td style="color:#8b949e;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name||''}</td>
+    <td>${fmt(s.price)} <span style="font-size:0.7rem;color:#6e7681">${currency}</span></td>
+    <td class="${cls}">${chgStr(s.change_pct)}</td>
+  </tr>`;
+}
+
+function renderTable() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const ex = ALL_DATA.exchanges;
+  let rows = [];
+  for (const code of ['DSE','NSE']) {
+    if (currentExchange !== 'ALL' && currentExchange !== code) continue;
+    const currency = ex[code].currency;
+    for (const s of (ex[code].all_stocks || [])) {
+      if (q && !s.ticker?.toLowerCase().includes(q) && !s.name?.toLowerCase().includes(q)) continue;
+      const rsi = s.rsi14;
+      const rsiCls = rsi == null ? '' : rsi >= 70 ? 'rsi-high' : rsi <= 30 ? 'rsi-low' : '';
+      rows.push(`<tr>
+        <td><strong>${s.ticker||''}</strong></td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name||''}</td>
+        <td><span class="badge badge-blue" style="font-size:0.65rem">${code}</span></td>
+        <td>${fmt(s.price)} <span style="font-size:0.7rem;color:#6e7681">${currency}</span></td>
+        <td class="${chgClass(s.change_pct)}">${chgStr(s.change_pct)}</td>
+        <td class="neutral">${s.ma5 != null ? fmt(s.ma5) : '–'}</td>
+        <td class="neutral">${s.ma20 != null ? fmt(s.ma20) : '–'}</td>
+        <td class="${rsiCls}">${rsi != null ? fmt(rsi,1) : '–'}</td>
+        <td class="${chgClass(s.chg_5d)}">${chgStr(s.chg_5d)}</td>
+        <td class="neutral">${fmtLarge(s.volume)}</td>
+      </tr>`);
+    }
+  }
+  document.getElementById('stocksBody').innerHTML = rows.join('') || '<tr><td colspan="10" style="text-align:center;color:#6e7681;padding:20px">No stocks found</td></tr>';
+}
+
+function filterExchange(code, btn) {
+  currentExchange = code;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTable();
+}
+
+function buildIndexChart(canvasId, history, color) {
+  if (!history?.length) return;
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  if (charts[canvasId]) charts[canvasId].destroy();
+  charts[canvasId] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: history.map(h => h.date),
+      datasets: [{
+        data: history.map(h => h.value),
+        borderColor: color,
+        backgroundColor: color + '22',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: { display: false }
+      }
+    }
+  });
+}
+
+async function init() {
+  const res  = await fetch('./data.json?v=' + Date.now());
+  const data = await res.json();
+  ALL_DATA   = data;
+
+  document.getElementById('updated').textContent =
+    'Last updated: ' + new Date(data.updated_at).toLocaleString('en-GB', {timeZone:'Africa/Dar_es_Salaam'}) + ' EAT';
+  document.getElementById('total-badge').textContent = data.total_stocks + ' stocks';
+
+  // Exchange cards
+  const grid = document.getElementById('exchangeGrid');
+  grid.innerHTML =
+    buildExchangeCard('DSE', data.exchanges.DSE, 'dseChart') +
+    buildExchangeCard('NSE', data.exchanges.NSE, 'nseChart');
+
+  buildIndexChart('dseChart', data.exchanges.DSE.index_history, '#58a6ff');
+  buildIndexChart('nseChart', data.exchanges.NSE.index_history, '#3fb950');
+
+  // Movers
+  const mg = document.getElementById('moversGrid');
+  for (const [code, label, currency] of [['DSE','🇹🇿 DSE Gainers','TZS'],['NSE','🇰🇪 NSE Gainers','KES']]) {
+    const ex = data.exchanges[code];
+    mg.innerHTML += `
+      <div class="movers-box">
+        <div class="movers-title">${label}</div>
+        <table><thead><tr><th>Ticker</th><th>Name</th><th>Price</th><th>Change</th></tr></thead>
+        <tbody>${(ex.gainers||[]).map(s=>buildMoverRow(s,currency)).join('')}</tbody></table>
+      </div>`;
+    mg.innerHTML += `
+      <div class="movers-box">
+        <div class="movers-title">${label.replace('Gainers','Losers')}</div>
+        <table><thead><tr><th>Ticker</th><th>Name</th><th>Price</th><th>Change</th></tr></thead>
+        <tbody>${(ex.losers||[]).map(s=>buildMoverRow(s,currency)).join('')}</tbody></table>
+      </div>`;
+  }
+
+  // RSI alerts
+  const alerts = data.rsi_alerts || [];
+  if (alerts.length) {
+    document.getElementById('alertsSection').style.display = '';
+    document.getElementById('alertsGrid').innerHTML = alerts.map(a => `
+      <div class="alert-card ${a.signal}">
+        <div>
+          <div class="alert-ticker ${a.signal === 'overbought' ? 'down' : 'up'}">${a.ticker}</div>
+          <div class="alert-name">${a.name} · ${a.exchange}</div>
+          <div style="font-size:0.72rem;margin-top:4px;color:${a.signal==='overbought'?'#f85149':'#3fb950'}">
+            ${a.signal.toUpperCase()}
+          </div>
+        </div>
+        <div class="alert-rsi ${a.signal==='overbought'?'down':'up'}">${Number(a.rsi).toFixed(1)}</div>
+      </div>`).join('');
+  }
+
+  renderTable();
+}
+
+init().catch(e => {
+  document.getElementById('updated').textContent = 'Error loading data — ' + e.message;
+});
+</script>
+</body>
+</html>

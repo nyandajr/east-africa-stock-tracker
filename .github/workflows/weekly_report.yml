@@ -1,0 +1,40 @@
+name: Weekly Market Report
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"   # Every Monday 08:00 UTC = 11:00 EAT
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate weekly report
+        run: python scripts/weekly_report.py
+
+      - name: Commit & push
+        run: |
+          git config user.name  "market-bot"
+          git config user.email "market-bot@users.noreply.github.com"
+          git add reports/
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "docs(report): weekly market summary $(date -u +%Y-%m-%d)"
+          git push

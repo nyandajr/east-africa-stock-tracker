@@ -1,0 +1,69 @@
+name: Market Pipeline
+
+on:
+  schedule:
+    - cron: "0 13 * * 1-5"   # Mon–Fri 13:00 UTC = 16:00 EAT (after market close)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch stock prices
+        run: python scripts/fetch.py
+        env:
+          MANSA_API_KEY: ${{ secrets.MANSA_API_KEY }}
+
+      - name: Compute technical indicators
+        run: python scripts/indicators.py
+
+      - name: Generate dashboard data
+        run: python scripts/dashboard.py
+
+      - name: Commit & push
+        run: |
+          git config user.name  "market-bot"
+          git config user.email "market-bot@users.noreply.github.com"
+
+          git add data/ docs/data.json status.json
+
+          DATE=$(TZ='Africa/Dar_es_Salaam' date +"%Y-%m-%d")
+
+          SUMMARY=$(python - <<'EOF'
+          import json, sys
+          try:
+              d = json.load(open("docs/data.json"))
+              dse = d["exchanges"]["DSE"]
+              nse = d["exchanges"]["NSE"]
+              dse_idx = dse.get("index_value") or 0
+              nse_idx = nse.get("index_value") or 0
+              dse_chg = dse.get("index_change_pct") or 0
+              nse_chg = nse.get("index_change_pct") or 0
+              print(f"DSE {dse_idx:,.0f} ({dse_chg:+.2f}%) | NSE {nse_idx:,.0f} ({nse_chg:+.2f}%)")
+          except Exception as e:
+              print("East Africa markets update")
+          EOF
+          )
+
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+
+          git commit -m "feat(market): daily close ${DATE} — ${SUMMARY}"
+          git push
