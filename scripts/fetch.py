@@ -69,37 +69,26 @@ def fetch_nse():
                 "change": change, "change_pct": change_pct, "market_cap": None,
             }
 
-    # Parse stocks table — columns: Ticker | Company | Volume | Price | Change
+    # Page uses unquoted HTML attributes — regex is more reliable than BeautifulSoup here
+    stock_pattern = re.compile(
+        r'<td><a href=https://afx\.kwayisi\.org/nse/[^\s>]+\s+title="([^"]+)">([^<]+)</a>'
+        r'<td><a[^>]+>[^<]+</a>'
+        r'<td>([^<]*)'   # volume
+        r'<td>([^<]+)'   # price
+        r'<td[^>]*>([^<]*)'  # change
+    )
     stocks = []
-    table = soup.find("table")
-    if not table:
-        print("[fetch] NSE: no table found — page snippet:")
-        print(resp.text[:500])
-        return stocks, index_row
-
-    for row in table.find_all("tr"):
-        cols = row.find_all("td")
-        if len(cols) < 4:
-            continue
-
-        ticker = cols[0].get_text(strip=True)
-        company = cols[1].get_text(strip=True)
-        volume_text = cols[2].get_text(strip=True)
-        price_text = cols[3].get_text(strip=True)
-        change_text = cols[4].get_text(strip=True) if len(cols) > 4 else ""
-
+    for company, ticker, volume_text, price_text, change_text in stock_pattern.findall(resp.text):
         price = safe_float(price_text)
         if not ticker or price is None:
             continue
-
         volume = safe_int(volume_text)
         change_abs = safe_float(change_text) or 0.0
         prev_price = price - change_abs
         change_pct = round((change_abs / prev_price) * 100, 2) if prev_price and change_abs else 0.0
-
         stocks.append({
             "date": today, "exchange": "NSE",
-            "ticker": ticker, "name": company,
+            "ticker": ticker.strip(), "name": company.strip(),
             "price": price, "change": change_abs, "change_pct": change_pct,
             "volume": volume, "market_cap": None, "open": None, "high": None, "low": None,
         })
