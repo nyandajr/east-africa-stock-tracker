@@ -29,6 +29,8 @@ jobs:
 
       - name: Fetch stock prices
         run: python scripts/fetch.py
+        env:
+          TWELVE_DATA_KEY: ${{ secrets.TWELVE_DATA_KEY }}
 
       - name: Compute technical indicators
         run: python scripts/indicators.py

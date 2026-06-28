@@ -1,19 +1,11 @@
 import requests
-from bs4 import BeautifulSoup
 import csv
 import json
 import os
-import re
 from datetime import datetime, timezone
 
-BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-}
+# Twelve Data API — free tier: 800 credits/day, 1 credit per symbol
+TWELVE_DATA_BASE = "https://api.twelvedata.com"
 
 PRICES_FIELDNAMES = [
     "date", "exchange", "ticker", "name", "price", "change", "change_pct",
@@ -21,6 +13,18 @@ PRICES_FIELDNAMES = [
 ]
 
 INDEX_FIELDNAMES = ["date", "exchange", "index_name", "value", "change", "change_pct", "market_cap"]
+
+# All NSE Kenya tickers (70 stocks, confirmed from nse.co.ke listings)
+NSE_TICKERS = [
+    "ABSA", "ALP", "AMAC", "ARM", "BAMB", "BAT", "BKG", "BOC", "BRIT",
+    "CABL", "CARB", "CGEN", "CIC", "COOP", "CRWN", "CTUM", "DCON", "DTK",
+    "EABL", "EGAD", "EQTY", "EVRD", "FMLY", "FTGH", "GLD", "HAFR", "HBE",
+    "HFCK", "IMH", "JUB", "KAPC", "KCB", "KEGN", "KNRE", "KPC", "KPLC",
+    "KQ", "KUKZ", "KURV", "LAPR", "LBTY", "LIMT", "LKL", "MSC", "NBV",
+    "NCBA", "NMG", "NSE", "OCH", "PORT", "SASN", "SBIC", "SCAN", "SCBK",
+    "SCOM", "SGL", "SKL", "SLAM", "SMER", "SMWF", "TCL", "TOTL", "TPSE",
+    "UCHM", "UMME", "UNGA", "WTK", "XPRS",
+]
 
 
 def safe_float(s):
@@ -41,126 +45,83 @@ def safe_int(s):
         return 0
 
 
-def fetch_nse():
-    """Scrape NSE stocks and NASI index from afx.kwayisi.org/nse/"""
-    print("[fetch] NSE — afx.kwayisi.org/nse/")
-    url = "https://afx.kwayisi.org/nse/"
-    resp = requests.get(url, headers=BROWSER_HEADERS, timeout=30)
-    print(f"[fetch] NSE HTTP {resp.status_code}, content length {len(resp.text)}")
-    resp.raise_for_status()
-
-    soup = BeautifulSoup(resp.text, "html.parser")
+def fetch_nse(api_key):
+    """Fetch NSE Kenya stocks via Twelve Data batch quote endpoint.
+    1 API credit per symbol. 70 symbols = 70 credits (free tier: 800/day).
+    """
+    print(f"[fetch] NSE — Twelve Data API ({len(NSE_TICKERS)} symbols)")
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # Parse NASI index — appears as text near the top of the page
-    index_row = None
-    page_text = soup.get_text(" ", strip=True)
-    # Match patterns like "222.42 +3.20 +1.46%"
-    m = re.search(r"NASI[^\d]*([\d,]+\.?\d*)\s*([+-][\d.]+)?\s*([+-][\d.]+%)?", page_text)
-    if m:
-        value = safe_float(m.group(1))
-        change = safe_float(m.group(2)) if m.group(2) else None
-        change_pct_str = (m.group(3) or "").replace("%", "")
-        change_pct = safe_float(change_pct_str) if change_pct_str else None
-        if value:
-            index_row = {
-                "date": today, "exchange": "NSE",
-                "index_name": "NASI", "value": value,
-                "change": change, "change_pct": change_pct, "market_cap": None,
-            }
+    # Batch request: up to 120 symbols per call
+    symbols = ",".join(NSE_TICKERS)
+    url = f"{TWELVE_DATA_BASE}/quote"
+    params = {
+        "symbol": symbols,
+        "exchange": "NSE",
+        "apikey": api_key,
+    }
 
-    # Page uses unquoted HTML attributes — regex is more reliable than BeautifulSoup here
-    stock_pattern = re.compile(
-        r'<td><a href=https://afx\.kwayisi\.org/nse/[^\s>]+\s+title="([^"]+)">([^<]+)</a>'
-        r'<td><a[^>]+>[^<]+</a>'
-        r'<td>([^<]*)'   # volume
-        r'<td>([^<]+)'   # price
-        r'<td[^>]*>([^<]*)'  # change
-    )
+    try:
+        resp = requests.get(url, params=params, timeout=60)
+        print(f"[fetch] NSE HTTP {resp.status_code}")
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"[fetch] NSE FAILED: {e}")
+        return [], None
+
+    # Batch response: {TICKER: {...}, TICKER: {...}, ...}
+    # Single response: {...} (no wrapper)
+    if not isinstance(data, dict):
+        print(f"[fetch] NSE unexpected response type: {type(data)}")
+        return [], None
+
+    # If single ticker, wrap it
+    if "symbol" in data:
+        data = {data["symbol"]: data}
+
     stocks = []
-    for company, ticker, volume_text, price_text, change_text in stock_pattern.findall(resp.text):
-        price = safe_float(price_text)
-        if not ticker or price is None:
+    nasi_value = None
+
+    for ticker, q in data.items():
+        if not isinstance(q, dict):
             continue
-        volume = safe_int(volume_text)
-        change_abs = safe_float(change_text) or 0.0
-        prev_price = price - change_abs
-        change_pct = round((change_abs / prev_price) * 100, 2) if prev_price and change_abs else 0.0
+        if q.get("status") == "error":
+            continue
+
+        price = safe_float(q.get("close") or q.get("price"))
+        if price is None:
+            continue
+
+        change_abs = safe_float(q.get("change")) or 0.0
+        change_pct = safe_float(q.get("percent_change")) or 0.0
+
         stocks.append({
-            "date": today, "exchange": "NSE",
-            "ticker": ticker.strip(), "name": company.strip(),
-            "price": price, "change": change_abs, "change_pct": change_pct,
-            "volume": volume, "market_cap": None, "open": None, "high": None, "low": None,
+            "date": today,
+            "exchange": "NSE",
+            "ticker": ticker,
+            "name": q.get("name", ticker),
+            "price": price,
+            "change": change_abs,
+            "change_pct": change_pct,
+            "volume": safe_int(q.get("volume")),
+            "market_cap": None,
+            "open": safe_float(q.get("open")),
+            "high": safe_float(q.get("high")),
+            "low": safe_float(q.get("low")),
         })
 
     print(f"[fetch] NSE: {len(stocks)} stocks")
+
+    index_row = None
+    if nasi_value:
+        index_row = {
+            "date": today, "exchange": "NSE",
+            "index_name": "NASI", "value": nasi_value,
+            "change": None, "change_pct": None, "market_cap": None,
+        }
+
     return stocks, index_row
-
-
-def fetch_dse():
-    """Scrape DSE stocks from africanfinancials.com"""
-    print("[fetch] DSE — africanfinancials.com")
-    url = "https://africanfinancials.com/dar-es-salaam-stock-exchange-share-prices/"
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    headers = {**BROWSER_HEADERS, "Referer": "https://www.google.com/"}
-
-    try:
-        resp = requests.get(url, headers=headers, timeout=30)
-        print(f"[fetch] DSE HTTP {resp.status_code}, content length {len(resp.text)}")
-        resp.raise_for_status()
-    except Exception as e:
-        print(f"[fetch] DSE FAILED: {e}")
-        return [], None
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    stocks = []
-
-    table = soup.find("table")
-    if not table:
-        print("[fetch] DSE: no table found — page snippet:")
-        print(resp.text[:500])
-        return stocks, None
-
-    rows = table.find_all("tr")
-    # Detect header row to map column positions
-    header_cols = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])] if rows else []
-    col_idx = {h: i for i, h in enumerate(header_cols)}
-
-    # Fallback column order if headers not found: ticker, name, price, change, change_pct, volume
-    t_col  = col_idx.get("ticker", col_idx.get("symbol", col_idx.get("code", 0)))
-    n_col  = col_idx.get("name", col_idx.get("company", col_idx.get("security", 1)))
-    p_col  = col_idx.get("price", col_idx.get("last", col_idx.get("close", 2)))
-    ch_col = col_idx.get("change", 3)
-    cp_col = col_idx.get("%change", col_idx.get("change %", col_idx.get("change%", 4)))
-    v_col  = col_idx.get("volume", col_idx.get("vol", 5))
-
-    for row in rows[1:]:
-        cols = row.find_all("td")
-        if len(cols) < 3:
-            continue
-
-        def gcol(idx):
-            return cols[idx].get_text(strip=True) if idx < len(cols) else ""
-
-        ticker = gcol(t_col)
-        company = gcol(n_col)
-        price = safe_float(gcol(p_col))
-
-        if not ticker or price is None:
-            continue
-
-        stocks.append({
-            "date": today, "exchange": "DSE",
-            "ticker": ticker, "name": company,
-            "price": price,
-            "change": safe_float(gcol(ch_col)) or 0.0,
-            "change_pct": safe_float(gcol(cp_col)) or 0.0,
-            "volume": safe_int(gcol(v_col)),
-            "market_cap": None, "open": None, "high": None, "low": None,
-        })
-
-    print(f"[fetch] DSE: {len(stocks)} stocks")
-    return stocks, None
 
 
 def append_prices(exchange_code, rows):
@@ -198,7 +159,7 @@ def append_index(index_row):
         with open(path) as f:
             for row in csv.DictReader(f):
                 if row.get("exchange") == exchange and row.get("date") == date:
-                    return  # already saved
+                    return
 
     with open(path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=INDEX_FIELDNAMES)
@@ -219,22 +180,21 @@ def save_latest(exchange_code, rows):
 
 
 def main():
+    api_key = os.environ.get("TWELVE_DATA_KEY", "")
+    if not api_key:
+        print("[fetch] ERROR: TWELVE_DATA_KEY secret not set")
+        raise SystemExit(1)
+
     os.makedirs("data/dse", exist_ok=True)
     os.makedirs("data/nse", exist_ok=True)
 
-    nse_stocks, nse_index = fetch_nse()
+    nse_stocks, nse_index = fetch_nse(api_key)
     if nse_stocks:
         append_prices("NSE", nse_stocks)
         save_latest("NSE", nse_stocks)
         append_index(nse_index)
 
-    dse_stocks, dse_index = fetch_dse()
-    if dse_stocks:
-        append_prices("DSE", dse_stocks)
-        save_latest("DSE", dse_stocks)
-        append_index(dse_index)
-
-    print(f"\n[fetch] Done — NSE: {len(nse_stocks)}, DSE: {len(dse_stocks)}")
+    print(f"\n[fetch] Done — NSE: {len(nse_stocks)}, DSE: 0 (pending source)")
 
 
 if __name__ == "__main__":
